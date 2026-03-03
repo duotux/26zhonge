@@ -1,0 +1,20 @@
+# ============================================================
+#  PC 端 Python 依赖
+#  安装：pip install -r requirements.txt
+#  Python 版本要求：3.9+
+# ============================================================
+
+# AI 推理框架
+ultralytics>=8.0.0          # YOLOv8，内含 torch 依赖
+opencv-python>=4.8.0        # 图像解码与标注
+
+# GUI 框架
+PyQt5>=5.15.9               # 桌面端 UI
+
+# 数据可视化（台账统计图表）
+matplotlib>=3.7.0
+
+# 数据库（Python 内置 sqlite3，无需额外安装）
+
+# 工具库（标准库已含，列出供参考）
+# socket, threading, struct, json, csv, collections, datetime

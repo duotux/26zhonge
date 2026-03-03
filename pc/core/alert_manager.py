@@ -1,0 +1,104 @@
+# ============================================================
+#  分级预警管理器 — core/alert_manager.py
+#  负责：分级处置、截图存档、下发指令给 ESP32
+# ============================================================
+import os
+import cv2
+import threading
+from datetime import datetime
+from core.config import RECORD_DIR
+from core.cmd_sender import CmdSender
+
+# 违规类别 → 对应 ESP32 播报指令
+CMD_MAP = {
+    "no_goggles":   "warn1",
+    "no_labcoat":   "warn1",
+    "no_gloves":    "warn1",
+    "open_fire":    "warn2",
+    "absent":       "warn2",
+    "hazmat_mix":   "warn3",
+    "waste_pour":   "warn3",
+    "unauthorized": "warn3",
+}
+
+# 预警等级中文说明
+LEVEL_DESC = {
+    1: "一级预警（一般违规）",
+    2: "二级预警（中度风险）",
+    3: "三级预警（重大风险）",
+}
+
+
+class AlertManager:
+    """
+    预警处置：
+      1. 保存违规截图
+      2. 通过 CmdSender 向对应 ESP32 下发语音播报指令
+      3. 回调通知 UI 刷新（on_alert_cb）
+    """
+
+    def __init__(self, cmd_sender: CmdSender,
+                 db=None, on_alert_cb=None):
+        """
+        cmd_sender : CmdSender 实例
+        db         : Database 实例（可为 None）
+        on_alert_cb: fn(event_dict) — 由 UI 监听，用于弹窗/列表刷新
+        """
+        self._sender     = cmd_sender
+        self._db         = db
+        self._on_alert   = on_alert_cb
+        self._lock       = threading.Lock()
+        os.makedirs(RECORD_DIR, exist_ok=True)
+
+    def handle(self, device_ip: str, class_name: str,
+               level: int, frame, detections: list):
+        """由 AIEngine 的 on_alert 回调触发（在 AI 推理线程中）"""
+        threading.Thread(
+            target=self._process,
+            args=(device_ip, class_name, level, frame, detections),
+            daemon=True
+        ).start()
+
+    def _process(self, device_ip, class_name, level, frame, detections):
+        ts  = datetime.now()
+        ts_str = ts.strftime("%Y%m%d_%H%M%S")
+
+        # 1. 保存截图
+        img_path = os.path.join(
+            RECORD_DIR,
+            f"{ts_str}_{device_ip.replace('.','_')}_{class_name}.jpg"
+        )
+        cv2.imwrite(img_path, frame)
+
+        # 2. 构造事件字典
+        event = {
+            "ts":         ts.isoformat(timespec="seconds"),
+            "device_ip":  device_ip,
+            "class_name": class_name,
+            "level":      level,
+            "level_desc": LEVEL_DESC.get(level, ""),
+            "img_path":   img_path,
+            "conf":       max((d["conf"] for d in detections
+                               if d["class"] == class_name), default=0.0),
+        }
+
+        # 3. 写入数据库
+        if self._db:
+            try:
+                self._db.insert_event(event)
+            except Exception as e:
+                print(f"[AlertManager] 数据库写入失败: {e}")
+
+        # 4. 下发 ESP32 指令
+        cmd   = CMD_MAP.get(class_name, "warn1")
+        try:
+            self._sender.send(device_ip, cmd, level)
+        except Exception as e:
+            print(f"[AlertManager] 指令发送失败: {e}")
+
+        print(f"[Alert] {event['level_desc']} | {device_ip} | "
+              f"{class_name} | 截图:{img_path}")
+
+        # 5. 通知 UI
+        if self._on_alert:
+            self._on_alert(event)
