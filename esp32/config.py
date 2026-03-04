@@ -4,8 +4,8 @@
 # ============================================================
 
 # ---------- WiFi 连接配置 ----------
-WIFI_SSID     = "LAB_MONITOR_AP"   # PC 热点名称
-WIFI_PASSWORD = "lab12345678"      # PC 热点密码
+WIFI_SSID     = "Xiaomi_DE8E"   # PC 热点名称
+WIFI_PASSWORD = "123456789"      # PC 热点密码
 
 # ---------- 静态 IP 配置（避免 DHCP 导致 IP 漂移） ----------
 STATIC_IP      = "192.168.137.10"

@@ -9,12 +9,23 @@
 import sys
 import os
 
+# ==================== Qt插件修复 核心代码 ====================
+# 使用 sys.prefix 直接获取虚拟环境根目录，避免路径错误
+pyqt_plugins_path = os.path.join(
+    sys.prefix,  # 直接指向 .venv 根目录
+    "Lib", "site-packages", "PyQt5", "Qt5", "plugins"
+)
+# 强制设置Qt插件路径环境变量
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = pyqt_plugins_path
+# ============================================================
+
 # 确保以 pc/ 为工作目录，使相对路径正确
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QFont
+# --------------- 后面的原有代码完全不变，无需修改 ---------------
 
 from core.stream_receiver   import StreamReceiver
 from core.heartbeat_monitor import HeartbeatMonitor
