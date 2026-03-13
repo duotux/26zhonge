@@ -31,6 +31,7 @@ from core.stream_receiver   import StreamReceiver
 from core.heartbeat_monitor import HeartbeatMonitor
 from core.cmd_sender        import CmdSender
 from core.ai_engine         import AIEngine
+from core.audio_server      import AudioFileServer
 from db.database            import Database
 from ui.main_window         import MainWindow
 from ui.i18n                import set_lang
@@ -51,9 +52,11 @@ def main():
     cmd_sender = CmdSender()
     stream_rcv = StreamReceiver()
     ai_engine  = AIEngine(lang=DEFAULT_LANG)
+    audio_srv  = AudioFileServer()
 
     stream_rcv.start()
     hb_monitor.start()
+    audio_srv.start()
 
     # ── 启动 Qt 应用 ──────────────────────────────────────
     app = QApplication(sys.argv)
@@ -76,6 +79,7 @@ def main():
     stream_rcv.stop()
     hb_monitor.stop()
     cmd_sender.close()
+    audio_srv.stop()
 
     sys.exit(code)
 
