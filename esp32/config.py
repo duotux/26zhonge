@@ -4,25 +4,25 @@
 # ============================================================
 
 # ---------- WiFi 连接配置 ----------
-WIFI_SSID     = "Xiaomi_DE8E"   # PC 热点名称
-WIFI_PASSWORD = "123456789"      # PC 热点密码
+WIFI_SSID     = "ceshi123"   # PC 热点名称
+WIFI_PASSWORD = "12345678"      # PC 热点密码
 
 # ---------- 静态 IP 配置（避免 DHCP 导致 IP 漂移） ----------
-STATIC_IP      = "192.168.31.10"
+STATIC_IP      = "192.168.137.121"
 SUBNET_MASK    = "255.255.255.0"
-GATEWAY        = "192.168.31.1"
-DNS_SERVER     = "192.168.31.1"
+GATEWAY        = "192.168.137.1"
+DNS_SERVER     = "192.168.137.1"
 
 # ---------- PC 端地址与端口 ----------
-PC_IP          = "192.168.31.196"   # PC 热点网关即为 PC 本机地址
+PC_IP          = "192.168.137.1"   # PC 热点网关即为 PC 本机地址
 UDP_PORT       = 5600              # 视频帧上行（ESP32→PC）UDP 端口
 TCP_PORT       = 5601              # 指令下行（PC→ESP32）TCP 端口
 HEARTBEAT_PORT = 5602              # 心跳包端口（UDP）
 
 # ---------- 摄像头配置 ----------
-CAM_FRAMESIZE  = 5     # FRAMESIZE_QVGA = 5 → 320×240
-CAM_QUALITY    = 15    # JPEG 质量 0-63，数值越小质量越高，推荐 10-15
-CAM_FPS        = 12    # 目标帧率
+CAM_FRAMESIZE  = 5     # FRAMESIZE_QVGA = 5 → 320×240（节省内存）
+CAM_QUALITY    = 30    # JPEG 质量 0-63，增大数值降低大小，推荐 25-35
+CAM_FPS        = 8     # 目标帧率（降低到 8FPS 减少压力）
 
 # ---------- 音频配置（I2S → MAX98357A） ----------
 I2S_BCK_PIN    = 41    # I2S 时钟引脚

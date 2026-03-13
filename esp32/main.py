@@ -25,7 +25,10 @@ hb       = Heartbeat(device_id="ESP32_01")
 
 async def on_command(cmd: bytes, level: int):
     """指令回调：由 CmdReceiver 触发，交给 AudioPlayer 处理"""
-    await player.handle_command(cmd, level)
+    try:
+        await player.handle_command(cmd, level)
+    except Exception as e:
+        print("[CMD] 指令处理异常:", e)
 
 
 async def main():
@@ -37,7 +40,7 @@ async def main():
         import machine
         machine.reset()
 
-    # 2. 初始化摄像头流
+    # 2. 初始化摄像头流（延迟初始化，避免资源竞争）
     global streamer
     streamer = CameraStreamer()
 
@@ -45,8 +48,10 @@ async def main():
     cmd_recv = CmdReceiver(on_command_cb=on_command)
     await cmd_recv.start()
 
-    # 4. 并发启动：视频流 + 心跳 + WiFi 看门狗
+    # 4. 并发启动：视频流 + 心跳 + WiFi 看门狗（降低启动并发压力）
+    await asyncio.sleep(1)  # 给系统1秒缓冲
     asyncio.create_task(streamer.stream_loop())
+    await asyncio.sleep(0.5)
     asyncio.create_task(hb.beat_loop())
     asyncio.create_task(_wifi_watchdog())
 
@@ -57,29 +62,46 @@ async def main():
 
 
 async def _wifi_watchdog():
-    """每 10 秒检测 WiFi，断线自动重连，恢复后重启摄像头流"""
+    """每 10 秒检测 WiFi，断线自动重连（优化摄像头重启逻辑）"""
     global streamer
     while True:
         await asyncio.sleep(10)
         if not wifi.ensure_connected():
             print("[WATCHDOG] WiFi 断线，等待重连...")
+            # 安全停止摄像头（增加延迟，确保资源释放）
             if streamer:
                 streamer.stop()
-            # 等待 WiFi 恢复后重新创建流
-            while not wifi.ensure_connected():
+                await asyncio.sleep(1)  # 等待1秒释放资源
+            # 等待 WiFi 恢复
+            retry_count = 0
+            while not wifi.ensure_connected() and retry_count < 20:
                 await asyncio.sleep(3)
-            streamer = CameraStreamer()
-            asyncio.create_task(streamer.stream_loop())
-            print("[WATCHDOG] WiFi 恢复，视频流已重启")
+                retry_count += 1
+            # WiFi恢复后重新初始化摄像头
+            if wifi.ensure_connected():
+                streamer = CameraStreamer()
+                await asyncio.sleep(0.5)
+                asyncio.create_task(streamer.stream_loop())
+                print("[WATCHDOG] WiFi 恢复，视频流已重启")
+            else:
+                print("[WATCHDOG] WiFi 重连失败，将在30秒后重试")
 
 
-# ── 程序入口 ───────────────────────────────────────────────
-try:
-    asyncio.run(main())
-except KeyboardInterrupt:
-    print("[MAIN] 手动终止")
-except Exception as e:
-    print("[MAIN] 致命异常:", e)
-    time.sleep(5)
-    import machine
-    machine.reset()
+# ── 程序入口（优化异常处理，避免串口乱码）──────────────────────
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        # 中文转ASCII，避免串口编码乱码导致的异常
+        print("[MAIN] Manual stop (用户手动终止)")
+    except Exception as e:
+        # 捕获所有异常并简化输出，避免串口解析错误
+        print(f"[MAIN] Fatal error: {str(e)}")
+        # 安全释放资源
+        if streamer:
+            streamer.stop()
+        hb.stop()
+        time.sleep(5)
+        # 重启设备
+        import machine
+        machine.reset()
