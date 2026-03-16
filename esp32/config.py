@@ -19,16 +19,16 @@ UDP_PORT       = 5600              # 视频帧上行（ESP32→PC）UDP 端口
 TCP_PORT       = 5601              # 指令下行（PC→ESP32）TCP 端口
 HEARTBEAT_PORT = 5602              # 心跳包端口（UDP）
 
-# ---------- 摄像头配置 ----------
-CAM_FRAMESIZE  = 5     # FRAMESIZE_QVGA = 5 → 320×240（节省内存）
-CAM_QUALITY    = 30    # JPEG 质量 0-63，增大数值降低大小，推荐 25-35
-CAM_FPS        = 8     # 目标帧率（降低到 8FPS 减少压力）
+# ---------- 摄像头配置（优化帧率和稳定性） ----------
+CAM_FRAMESIZE  = 5     # FRAMESIZE_QVGA = 5 → 320×240（节省内存，提高帧率）
+CAM_QUALITY    = 35    # JPEG 质量 0-63，增大数值降低大小，推荐 30-40（平衡质量和速度）
+CAM_FPS        = 10    # 目标帧率（QVGA 分辨率下可达 10-15FPS）
 
 # ---------- 音频配置（I2S → MAX98357A） ----------
 I2S_BCK_PIN    = 41    # I2S 时钟引脚
 I2S_WS_PIN     = 42    # I2S 字节时钟
 I2S_DATA_PIN   = 40    # I2S 数据输出引脚
-AUDIO_RATE     = 8000  # 采样率 8kHz
+AUDIO_RATE     = 24000  # 采样率 24kHz（与音频文件一致）
 
 # ---------- 预警指令映射 ----------
 WARN_CMD_MAP = {

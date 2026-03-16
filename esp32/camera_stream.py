@@ -34,15 +34,15 @@ def _init_camera(retry=3):
         except:
             pass
         
-        # 重试初始化（使用 ceshi.py 的成功配置，移除 fb_location 参数）
+        # 重试初始化（使用配置文件中的分辨率和质量）
         for i in range(retry):
             try:
-                # 使用 FRAME_VGA 分辨率，不指定 fb_location（提高兼容性）
+                # 使用配置的分辨率和质量参数
                 camera.init(0,
                             format=camera.JPEG,
-                            framesize=camera.FRAME_VGA,  # 640x480
+                            framesize=CAM_FRAMESIZE,
                             quality=CAM_QUALITY)
-                print("[Camera] 初始化成功，分辨率 640×480 JPEG")
+                print(f"[Camera] 初始化成功，分辨率 {CAM_FRAMESIZE} JPEG 质量={CAM_QUALITY}")
                 camera_init_lock = False
                 return True
             except Exception as e:
@@ -51,12 +51,12 @@ def _init_camera(retry=3):
                 time.sleep(0.5)
         
         # 如果标准初始化失败，尝试最低分辨率
-        print("[Camera] 尝试降低分辨率到 QVGA...")
+        print(f"[Camera] 尝试降低分辨率到 QVGA...")
         try:
             camera.init(0,
                         format=camera.JPEG,
                         framesize=camera.FRAME_QVGA,  # 320x240
-                        quality=20)  # 降低质量
+                        quality=35)  # 进一步降低质量
             print("[Camera] 降级初始化成功，分辨率 320×240 JPEG")
             camera_init_lock = False
             return True
@@ -136,13 +136,13 @@ class CameraStreamer:
                         try:
                             self.udp_sock.sendto(pkt, self.pc_addr)
                             sent_count += 1
-                            # 每发送 5 个包短暂延迟，避免网络拥塞
-                            if idx % 5 == 0:
-                                await asyncio.sleep_ms(2)
+                            # 每发送 10 个包短暂延迟，避免网络拥塞（优化：减少延迟）
+                            if idx % 10 == 0 and idx > 0:
+                                await asyncio.sleep_ms(1)
                         except Exception as e:
                             # 静默失败，避免过多打印占用串口
                             pass
-                        await asyncio.sleep_ms(1)  # 防止 UDP 拥塞
+                        # 移除每包延迟，提高发送速度
                         
                     # 只有成功发送部分数据才计数
                     if sent_count > len(chunks) * 0.5:  # 超过 50% 成功

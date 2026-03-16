@@ -123,10 +123,15 @@ class StreamReceiver:
             if complete is None:
                 continue
 
-            # JPEG → BGR
-            arr = np.frombuffer(complete, dtype=np.uint8)
-            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            if frame is None:
+            # JPEG → BGR（增加容错处理）
+            try:
+                arr = np.frombuffer(complete, dtype=np.uint8)
+                frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                if frame is None:
+                    print(f"[StreamReceiver] 解码失败：帧 ID={frame_id}, 大小={len(complete)}")
+                    continue
+            except Exception as e:
+                print(f"[StreamReceiver] 解码异常：{e}, 帧 ID={frame_id}")
                 continue
 
             # 更新 FPS 统计
