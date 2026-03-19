@@ -12,7 +12,8 @@ from collections import defaultdict
 from datetime import datetime
 from core.config import (MODEL_PATH, CONF_THRESHOLD,
                           CONSECUTIVE_FRAMES, VIOLATION_LEVELS, RECORD_DIR,
-                          PERSON_MODEL_PATH, PERSON_CONF_THRESHOLD, PERSON_CLASSES)
+                          PERSON_MODEL_PATH, PERSON_CONF_THRESHOLD, PERSON_CLASSES,
+                          PERSON_ABSENT_SEC)
 
 try:
     from ultralytics import YOLO
@@ -56,7 +57,10 @@ class AIEngine:
         self._consec = defaultdict(lambda: defaultdict(int))
         # 已触发（冷却中）的违规 {ip: {class_name: last_trigger_ts}}
         self._cooldown = defaultdict(dict)
+        # 人员离岗计时器 {ip: last_person_seen_time}
+        self._person_absent_timer = defaultdict(lambda: None)
         self.COOLDOWN_SEC = 8   # 同一违规 8 秒内不重复触发
+        self.PERSON_ABSENT_SEC = PERSON_ABSENT_SEC  # 人员消失 30 秒后触发警报（从配置读取）
         self._load_models()
 
     def _load_models(self):
@@ -127,14 +131,9 @@ class AIEngine:
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     level  = VIOLATION_LEVELS.get(name, 1)
                     color  = LEVEL_STYLE[level][0]
-                    label  = CLASS_LABELS.get(name, {}).get(self.lang, name)
 
-                    # 绘制标注框
+                    # 只绘制标注框，不添加文字标注
                     cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(annotated,
-                                f"{label} {conf:.0%}",
-                                (x1, max(y1 - 8, 0)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
                     detections.append({"class": name, "conf": conf,
                                         "box": [x1, y1, x2, y2], "level": level})
@@ -146,6 +145,10 @@ class AIEngine:
                 person_results = self._person_model(frame, conf=PERSON_CONF_THRESHOLD,
                                                     classes=PERSON_CLASSES,
                                                     verbose=False, stream=False)
+            
+            # 更新人员出现时间
+            current_time = time.time()
+            person_detected = False
             
             for r in person_results:
                 if r.boxes is None:
@@ -166,18 +169,28 @@ class AIEngine:
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     level  = VIOLATION_LEVELS.get(name, 1)
                     color  = LEVEL_STYLE[level][0]
-                    label  = CLASS_LABELS.get(name, {}).get(self.lang, name)
 
-                    # 绘制标注框
+                    # 只绘制标注框，不添加文字标注
                     cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(annotated,
-                                f"{label} {conf:.0%}",
-                                (x1, max(y1 - 8, 0)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
                     detections.append({"class": name, "conf": conf,
                                         "box": [x1, y1, x2, y2], "level": level})
                     detected_classes.add(name)
+                    person_detected = True
+            
+            # 人员离岗逻辑：记录最后看到人员的时间
+            if person_detected:
+                self._person_absent_timer[device_ip] = current_time
+            else:
+                # 如果之前看到过人，现在没看到，开始计时
+                if self._person_absent_timer[device_ip] is not None:
+                    absent_duration = current_time - self._person_absent_timer[device_ip]
+                    if absent_duration >= self.PERSON_ABSENT_SEC:
+                        # 触发人员离岗警报
+                        self._consec[device_ip]["Person"] += 1
+                        if self._consec[device_ip]["Person"] >= CONSECUTIVE_FRAMES:
+                            self._consec[device_ip]["Person"] = 0
+                            self._maybe_alert(device_ip, "Person", annotated, detections)
         
         # 调试：打印检测结果（每 10 帧打印一次）
         if len(all_detections) > 0 and len(detections) == 0:
