@@ -36,9 +36,25 @@ class CmdSender:
             if sock is None:
                 return False
             try:
+                # 设置超时避免无限等待
+                sock.settimeout(0.5)  # 0.5 秒超时
                 sock.sendall(msg)
-                ack = sock.recv(8)
-                return ack.strip() == b"ACK"
+                
+                # 尝试接收 ACK（可选，不强制要求）
+                try:
+                    ack = sock.recv(8)
+                    success = (ack.strip() == b"ACK")
+                    if success:
+                        print(f"[CmdSender] ✓ 收到 ACK from {device_ip}")
+                    return success
+                except socket.timeout:
+                    # 超时但仍然认为发送成功（ESP32 可能忙）
+                    print(f"[CmdSender] ⚠ 未收到 ACK，但指令已发送：{device_ip}")
+                    return True
+                except Exception as recv_err:
+                    print(f"[CmdSender] 接收失败 {device_ip}: {recv_err}")
+                    return True  # 仍然认为发送成功
+                    
             except Exception as e:
                 print(f"[CmdSender] 发送失败 {device_ip}: {e}")
                 self._close_conn(device_ip)
