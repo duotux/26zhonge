@@ -126,25 +126,39 @@ class StatsTab(QWidget):
         vbox.addWidget(self._tabs)
 
     def refresh_data(self):
-        days = self._spin.value()
-        # 柱状图：按违规类型
-        rows = self._db.stats_by_class(days)
-        labels = [t(r["class_name"]) for r in rows]
-        values = [r["cnt"] for r in rows]
-        self._canvas_bar.draw_bar(labels, values, t("chart_by_class"))
-
-        # 折线图：按日期
-        rows2 = self._db.stats_by_day(days)
-        xl = [r["day"][5:] for r in rows2]  # MM-DD
-        yl = [r["cnt"] for r in rows2]
-        self._canvas_line.draw_line(xl, yl, t("chart_by_day"))
-
-        # 饼图：按等级
-        lvl = self._db.stats_by_level(days)
-        pl = [t(f"level_{k}") for k in sorted(lvl)]
-        pv = [lvl[k] for k in sorted(lvl)]
-        if pv:
-            self._canvas_pie.draw_pie(pl, pv, t("chart_by_level"))
+        """刷新统计数据（增强错误处理）"""
+        try:
+            days = self._spin.value()
+            
+            # 柱状图：按违规类型
+            rows = self._db.stats_by_class(days)
+            if rows:
+                labels = [t(r["class_name"]) for r in rows]
+                values = [r["cnt"] for r in rows]
+                self._canvas_bar.draw_bar(labels, values, t("chart_by_class"))
+            else:
+                print(f"[StatsTab] 无违规数据（{days}天）")
+            
+            # 折线图：按日期
+            rows2 = self._db.stats_by_day(days)
+            if rows2:
+                xl = [r["day"][5:] for r in rows2]  # MM-DD
+                yl = [r["cnt"] for r in rows2]
+                self._canvas_line.draw_line(xl, yl, t("chart_by_day"))
+            else:
+                print(f"[StatsTab] 无每日数据（{days}天）")
+            
+            # 饼图：按等级
+            lvl = self._db.stats_by_level(days)
+            if lvl:
+                pl = [t(f"level_{k}") for k in sorted(lvl)]
+                pv = [lvl[k] for k in sorted(lvl)]
+                self._canvas_pie.draw_pie(pl, pv, t("chart_by_level"))
+            else:
+                print(f"[StatsTab] 无等级数据（{days}天）")
+                
+        except Exception as e:
+            print(f"[StatsTab] 刷新数据失败：{e}")
 
     def refresh_lang(self):
         self._tabs.setTabText(0, t("chart_by_class"))

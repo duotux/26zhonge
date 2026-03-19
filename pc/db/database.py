@@ -64,16 +64,22 @@ class Database:
 
     # ── 违规事件 ──────────────────────────────────────────
     def insert_event(self, event: dict) -> int:
-        c = self._conn()
-        cur = c.execute(
-            "INSERT INTO events(ts,device_ip,class_name,level,"
-            "level_desc,conf,img_path) VALUES(?,?,?,?,?,?,?)",
-            (event["ts"], event["device_ip"], event["class_name"],
-             event["level"], event.get("level_desc",""),
-             event.get("conf", 0.0), event.get("img_path",""))
-        )
-        c.commit()
-        return cur.lastrowid
+        """插入违规事件记录（带事务保护和错误处理）"""
+        try:
+            c = self._conn()
+            cur = c.execute(
+                "INSERT INTO events(ts,device_ip,class_name,level,"
+                "level_desc,conf,img_path) VALUES(?,?,?,?,?,?,?)",
+                (event["ts"], event["device_ip"], event["class_name"],
+                 event["level"], event.get("level_desc",""),
+                 event.get("conf", 0.0), event.get("img_path",""))
+            )
+            c.commit()
+            return cur.lastrowid
+        except Exception as e:
+            print(f"[Database] 插入事件失败：{e}")
+            print(f"[Database] 事件数据：{event}")
+            raise
 
     def mark_handled(self, event_id: int, note: str = "", user: str = ""):
         c = self._conn()
@@ -87,50 +93,66 @@ class Database:
     def query_events(self, days: int = 7, level: int = 0,
                      device_ip: str = "", unhandled_only: bool = False,
                      limit: int = 500) -> list:
-        """查询违规事件，返回字典列表"""
-        since = (datetime.now() - timedelta(days=days)).isoformat()
-        sql   = "SELECT * FROM events WHERE ts>=?"
-        args  = [since]
-        if level > 0:
-            sql += " AND level=?";  args.append(level)
-        if device_ip:
-            sql += " AND device_ip=?"; args.append(device_ip)
-        if unhandled_only:
-            sql += " AND handled=0"
-        sql += f" ORDER BY ts DESC LIMIT {limit}"
-        c = self._conn()
-        rows = c.execute(sql, args).fetchall()
-        return [dict(r) for r in rows]
+        """查询违规事件，返回字典列表（增强错误处理）"""
+        try:
+            since = (datetime.now() - timedelta(days=days)).isoformat()
+            sql   = "SELECT * FROM events WHERE ts>=?"
+            args  = [since]
+            if level > 0:
+                sql += " AND level=?";  args.append(level)
+            if device_ip:
+                sql += " AND device_ip=?"; args.append(device_ip)
+            if unhandled_only:
+                sql += " AND handled=0"
+            sql += f" ORDER BY ts DESC LIMIT {limit}"
+            c = self._conn()
+            rows = c.execute(sql, args).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            print(f"[Database] 查询事件失败：{e}")
+            return []
 
     def stats_by_class(self, days: int = 30) -> list:
-        """按违规类别统计数量，用于柱状图"""
-        since = (datetime.now() - timedelta(days=days)).isoformat()
-        rows = self._conn().execute(
-            "SELECT class_name, COUNT(*) AS cnt FROM events "
-            "WHERE ts>=? GROUP BY class_name ORDER BY cnt DESC",
-            (since,)
-        ).fetchall()
-        return [dict(r) for r in rows]
+        """按违规类别统计数量，用于柱状图（增强错误处理）"""
+        try:
+            since = (datetime.now() - timedelta(days=days)).isoformat()
+            rows = self._conn().execute(
+                "SELECT class_name, COUNT(*) AS cnt FROM events "
+                "WHERE ts>=? GROUP BY class_name ORDER BY cnt DESC",
+                (since,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            print(f"[Database] 统计类别失败：{e}")
+            return []
 
     def stats_by_day(self, days: int = 14) -> list:
-        """按日期统计事件数，用于折线图"""
-        since = (datetime.now() - timedelta(days=days)).isoformat()
-        rows = self._conn().execute(
-            "SELECT substr(ts,1,10) AS day, COUNT(*) AS cnt "
-            "FROM events WHERE ts>=? GROUP BY day ORDER BY day",
-            (since,)
-        ).fetchall()
-        return [dict(r) for r in rows]
+        """按日期统计事件数，用于折线图（增强错误处理）"""
+        try:
+            since = (datetime.now() - timedelta(days=days)).isoformat()
+            rows = self._conn().execute(
+                "SELECT substr(ts,1,10) AS day, COUNT(*) AS cnt "
+                "FROM events WHERE ts>=? GROUP BY day ORDER BY day",
+                (since,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            print(f"[Database] 统计日期失败：{e}")
+            return []
 
     def stats_by_level(self, days: int = 30) -> dict:
-        """按等级统计，用于饼图"""
-        since = (datetime.now() - timedelta(days=days)).isoformat()
-        rows = self._conn().execute(
-            "SELECT level, COUNT(*) AS cnt FROM events "
-            "WHERE ts>=? GROUP BY level",
-            (since,)
-        ).fetchall()
-        return {r["level"]: r["cnt"] for r in rows}
+        """按等级统计，用于饼图（增强错误处理）"""
+        try:
+            since = (datetime.now() - timedelta(days=days)).isoformat()
+            rows = self._conn().execute(
+                "SELECT level, COUNT(*) AS cnt FROM events "
+                "WHERE ts>=? GROUP BY level",
+                (since,)
+            ).fetchall()
+            return {r["level"]: r["cnt"] for r in rows}
+        except Exception as e:
+            print(f"[Database] 统计等级失败：{e}")
+            return {}
 
     # ── 设备管理 ──────────────────────────────────────────
     def upsert_device(self, ip: str, device_id: str = "",
