@@ -10,20 +10,14 @@ UDP_HB_PORT      = 5602   # 接收心跳包
 TCP_AUDIO_PORT   = 5603   # 音频文件流式传输
 
 # ── AI 推理 ───────────────────────────────────────────────
-MODEL_PATH       = "models/lab_safety.pt"   # 训练好的 YOLOv8n 权重
-CONF_THRESHOLD   = 0.70   # 置信度阈值
+MODEL_PATH       = "models/best.pt"   # 训练好的 YOLOv8n 权重
+CONF_THRESHOLD   = 0.50   # 置信度阈值
 CONSECUTIVE_FRAMES = 3    # 连续 N 帧触发预警
 
-# 违规类别及其默认预警等级
+# 违规类别及其默认预警等级（只保留 2 个报警）
 VIOLATION_LEVELS = {
-    "no_goggles":    1,   # 未戴护目镜
-    "no_labcoat":    1,   # 未穿实验服
-    "no_gloves":     1,   # 未戴手套
-    "open_fire":     2,   # 违规明火
-    "absent":        2,   # 人员离岗
-    "hazmat_mix":    3,   # 危化品混放
-    "waste_pour":    3,   # 违规倾倒废液
-    "unauthorized":  3,   # 非授权人员
+    "open_fire":     2,   # 违规明火 → 二级预警
+    "absent":        3,   # 人员离岗 → 三级预警（重大风险）
 }
 
 # ── 数据库 ────────────────────────────────────────────────

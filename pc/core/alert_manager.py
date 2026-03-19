@@ -9,21 +9,14 @@ from datetime import datetime
 from core.config import RECORD_DIR
 from core.cmd_sender import CmdSender
 
-# 违规类别 → 对应 ESP32 播报指令
+# 违规类别 → 对应 ESP32 播报指令（只保留 2 个报警）
 CMD_MAP = {
-    "no_goggles":   "warn1",
-    "no_labcoat":   "warn1",
-    "no_gloves":    "warn1",
-    "open_fire":    "warn2",
-    "absent":       "warn2",
-    "hazmat_mix":   "warn3",
-    "waste_pour":   "warn3",
-    "unauthorized": "warn3",
+    "open_fire":    "warn2",   # 请勿违规操作明火
+    "absent":       "warn3",   # 危险！无人值守
 }
 
-# 预警等级中文说明
+# 预警等级中文说明（只保留 2 个等级）
 LEVEL_DESC = {
-    1: "一级预警（一般违规）",
     2: "二级预警（中度风险）",
     3: "三级预警（重大风险）",
 }

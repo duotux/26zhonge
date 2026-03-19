@@ -30,12 +30,10 @@ I2S_WS_PIN     = 42    # I2S 字节时钟
 I2S_DATA_PIN   = 40    # I2S 数据输出引脚
 AUDIO_RATE     = 24000  # 采样率 24kHz（与音频文件一致）
 
-# ---------- 预警指令映射 ----------
+# ---------- 预警指令映射（只保留 2 个报警） ----------
 WARN_CMD_MAP = {
-    b"warn1": "/audio/warn1.wav",   # 请规范佩戴护目镜和实验服
     b"warn2": "/audio/warn2.wav",   # 请勿违规操作明火
     b"warn3": "/audio/warn3.wav",   # 危险！无人值守
-    b"warn1_ru": "/audio/warn1_ru.wav",  # 俄语版
     b"warn2_ru": "/audio/warn2_ru.wav",
     b"warn3_ru": "/audio/warn3_ru.wav",
     b"stop":  None,                 # 停止当前播报

@@ -33,12 +33,12 @@ class DeviceTab(QWidget):
         bar = QHBoxLayout()
         bar.addWidget(QLabel("指令 / Команда:"))
         self._cmb_cmd = QComboBox()
-        self._cmb_cmd.addItems(["warn1", "warn2", "warn3", "stop"])
+        self._cmb_cmd.addItems(["warn2", "warn3", "stop"])  # 只保留 2 个报警指令
         bar.addWidget(self._cmb_cmd)
 
         bar.addWidget(QLabel(t("col_level") + ":"))
         self._cmb_lvl = QComboBox()
-        self._cmb_lvl.addItems(["1", "2", "3"])
+        self._cmb_lvl.addItems(["2", "3"])  # 只保留 2 和 3 级
         bar.addWidget(self._cmb_lvl)
 
         self._btn_send = QPushButton(t("btn_send_warn"))

@@ -125,7 +125,7 @@ class MainWindow(QMainWindow):
     def _on_alert_ui(self, event: dict):
         """预警事件到达 UI 线程"""
         self._tab_alert.add_event(event)
-        level = event.get("level", 1)
+        level = event.get("level", 2)
         cls   = t(event.get("class_name", ""))
         dev   = event.get("device_ip", "")
         level_str = t(f"level_{level}")
