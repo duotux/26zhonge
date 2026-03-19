@@ -11,7 +11,8 @@ import os
 from collections import defaultdict
 from datetime import datetime
 from core.config import (MODEL_PATH, CONF_THRESHOLD,
-                          CONSECUTIVE_FRAMES, VIOLATION_LEVELS, RECORD_DIR)
+                          CONSECUTIVE_FRAMES, VIOLATION_LEVELS, RECORD_DIR,
+                          PERSON_MODEL_PATH, PERSON_CONF_THRESHOLD, PERSON_CLASSES)
 
 try:
     from ultralytics import YOLO
@@ -20,11 +21,12 @@ except ImportError:
     _YOLO_OK = False
     print("[AIEngine] 警告：未安装 ultralytics，以 Demo 模式运行")
 
-# 违规类别多语言标签（只保留 2 个报警）
+# 违规类别多语言标签（包含人员检测）
 # 注意：类别名称必须与 YOLOv8 模型训练时的标签一致！
 CLASS_LABELS = {
     "Fire":  {"zh": "火焰",       "ru": "Огонь"},
     "Smoke": {"zh": "烟雾",       "ru": "Дым"},
+    "Person": {"zh": "人员",      "ru": "Человек"},
 }
 
 # 预警等级 → (BGR 颜色，中文标题)（只保留 2 个等级）
@@ -36,7 +38,10 @@ LEVEL_STYLE = {
 
 class AIEngine:
     """
-    多设备 AI 推理引擎。
+    多设备 AI 推理引擎（支持双模型）。
+    - 主模型：检测 Fire 和 Smoke
+    - 人员模型：检测 Person（离岗检测）
+    
     每路设备独立计数器，连续 CONSECUTIVE_FRAMES 帧确认后触发预警回调。
     on_alert(device_ip, class_name, level, frame_bgr, boxes)
     """
@@ -44,36 +49,50 @@ class AIEngine:
     def __init__(self, on_alert=None, lang="zh"):
         self.lang = lang
         self.on_alert = on_alert
-        self._model = None
+        self._model = None          # 主模型（Fire + Smoke）
+        self._person_model = None   # 人员检测模型
         self._lock  = threading.Lock()
         # 每路设备的连续帧计数 {ip: {class_name: count}}
         self._consec = defaultdict(lambda: defaultdict(int))
         # 已触发（冷却中）的违规 {ip: {class_name: last_trigger_ts}}
         self._cooldown = defaultdict(dict)
         self.COOLDOWN_SEC = 8   # 同一违规 8 秒内不重复触发
-        self._load_model()
+        self._load_models()
 
-    def _load_model(self):
+    def _load_models(self):
+        """加载双模型：主模型 + 人员检测模型"""
         if not _YOLO_OK:
             return
+                
+        # 加载主模型（Fire + Smoke）
         path = MODEL_PATH
         if not os.path.exists(path):
             print(f"[AIEngine] 自训练权重不存在，加载 yolov8n.pt 演示")
             path = "yolov8n.pt"
         self._model = YOLO(path)
-        print(f"[AIEngine] 模型加载完成: {path}")
+        print(f"[AIEngine] 主模型加载完成：{path}")
+            
+        # 加载人员检测模型（COCO 预训练）
+        person_path = PERSON_MODEL_PATH
+        if os.path.exists(person_path):
+            try:
+                self._person_model = YOLO(person_path)
+                print(f"[AIEngine] 人员检测模型加载完成：{person_path}")
+            except Exception as e:
+                print(f"[AIEngine] 人员模型加载失败：{e}")
+                self._person_model = None
+        else:
+            print(f"[AIEngine] 人员模型文件不存在：{person_path}")
+            self._person_model = None
 
     def infer(self, device_ip: str, frame: np.ndarray):
         """
         推理一帧，返回标注后的图像和检测结果列表。
         result_list: [{"class": str, "conf": float, "box": [x1,y1,x2,y2], "level": int}]
+        使用双模型：主模型检测 Fire/Smoke，人员模型检测 Person
         """
-        if self._model is None:
+        if self._model is None and self._person_model is None:
             return frame, []
-
-        with self._lock:
-            results = self._model(frame, conf=CONF_THRESHOLD,
-                                   verbose=False, stream=False)
 
         annotated = frame.copy()
         detections = []
@@ -82,38 +101,83 @@ class AIEngine:
         # 调试：统计所有检测结果
         all_detections = []
 
-        for r in results:
-            if r.boxes is None:
-                continue
-            for box in r.boxes:
-                cls_id = int(box.cls[0])
-                conf   = float(box.conf[0])
-                name   = self._model.names.get(cls_id, str(cls_id))
-                
-                # 调试：记录所有检测到的目标
-                all_detections.append({"name": name, "conf": conf})
-                
-                # 只处理配置中的违规类别
-                if name not in VIOLATION_LEVELS:
-                    # 调试：打印未配置的类别（仅当检测到火焰时）
-                    if "fire" in name.lower() or "flame" in name.lower():
-                        print(f"[DEBUG] 检测到火焰但未配置：{name} (置信度：{conf:.2f})")
+        # ========== 1. 主模型推理（Fire + Smoke） ==========
+        if self._model is not None:
+            with self._lock:
+                results = self._model(frame, conf=CONF_THRESHOLD,
+                                       verbose=False, stream=False)
+
+            for r in results:
+                if r.boxes is None:
                     continue
-                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                level  = VIOLATION_LEVELS.get(name, 1)
-                color  = LEVEL_STYLE[level][0]
-                label  = CLASS_LABELS.get(name, {}).get(self.lang, name)
+                for box in r.boxes:
+                    cls_id = int(box.cls[0])
+                    conf   = float(box.conf[0])
+                    name   = self._model.names.get(cls_id, str(cls_id))
+                    
+                    # 调试：记录所有检测到的目标
+                    all_detections.append({"name": name, "conf": conf})
+                    
+                    # 只处理配置中的违规类别
+                    if name not in VIOLATION_LEVELS:
+                        # 调试：打印未配置的类别（仅当检测到火焰时）
+                        if "fire" in name.lower() or "flame" in name.lower():
+                            print(f"[DEBUG] 检测到火焰但未配置：{name} (置信度：{conf:.2f})")
+                        continue
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                    level  = VIOLATION_LEVELS.get(name, 1)
+                    color  = LEVEL_STYLE[level][0]
+                    label  = CLASS_LABELS.get(name, {}).get(self.lang, name)
 
-                # 绘制标注框
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(annotated,
-                            f"{label} {conf:.0%}",
-                            (x1, max(y1 - 8, 0)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    # 绘制标注框
+                    cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(annotated,
+                                f"{label} {conf:.0%}",
+                                (x1, max(y1 - 8, 0)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-                detections.append({"class": name, "conf": conf,
-                                    "box": [x1, y1, x2, y2], "level": level})
-                detected_classes.add(name)
+                    detections.append({"class": name, "conf": conf,
+                                        "box": [x1, y1, x2, y2], "level": level})
+                    detected_classes.add(name)
+        
+        # ========== 2. 人员模型推理（Person） ==========
+        if self._person_model is not None:
+            with self._lock:
+                person_results = self._person_model(frame, conf=PERSON_CONF_THRESHOLD,
+                                                    classes=PERSON_CLASSES,
+                                                    verbose=False, stream=False)
+            
+            for r in person_results:
+                if r.boxes is None:
+                    continue
+                for box in r.boxes:
+                    cls_id = int(box.cls[0])
+                    conf   = float(box.conf[0])
+                    # COCO 数据集类别 0 是 person
+                    name = "Person"
+                    
+                    # 调试：记录人员检测结果
+                    all_detections.append({"name": name, "conf": conf})
+                    
+                    # 检查是否配置了人员检测
+                    if name not in VIOLATION_LEVELS:
+                        continue
+                    
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                    level  = VIOLATION_LEVELS.get(name, 1)
+                    color  = LEVEL_STYLE[level][0]
+                    label  = CLASS_LABELS.get(name, {}).get(self.lang, name)
+
+                    # 绘制标注框
+                    cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(annotated,
+                                f"{label} {conf:.0%}",
+                                (x1, max(y1 - 8, 0)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+                    detections.append({"class": name, "conf": conf,
+                                        "box": [x1, y1, x2, y2], "level": level})
+                    detected_classes.add(name)
         
         # 调试：打印检测结果（每 10 帧打印一次）
         if len(all_detections) > 0 and len(detections) == 0:
