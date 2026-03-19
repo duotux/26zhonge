@@ -101,9 +101,6 @@ class AIEngine:
         annotated = frame.copy()
         detections = []
         detected_classes = set()
-        
-        # 调试：统计所有检测结果
-        all_detections = []
 
         # ========== 1. 主模型推理（Fire + Smoke） ==========
         if self._model is not None:
@@ -119,14 +116,8 @@ class AIEngine:
                     conf   = float(box.conf[0])
                     name   = self._model.names.get(cls_id, str(cls_id))
                     
-                    # 调试：记录所有检测到的目标
-                    all_detections.append({"name": name, "conf": conf})
-                    
                     # 只处理配置中的违规类别
                     if name not in VIOLATION_LEVELS:
-                        # 调试：打印未配置的类别（仅当检测到火焰时）
-                        if "fire" in name.lower() or "flame" in name.lower():
-                            print(f"[DEBUG] 检测到火焰但未配置：{name} (置信度：{conf:.2f})")
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     level  = VIOLATION_LEVELS.get(name, 1)
@@ -159,9 +150,6 @@ class AIEngine:
                     # COCO 数据集类别 0 是 person
                     name = "Person"
                     
-                    # 调试：记录人员检测结果
-                    all_detections.append({"name": name, "conf": conf})
-                    
                     # 检查是否配置了人员检测
                     if name not in VIOLATION_LEVELS:
                         continue
@@ -180,17 +168,20 @@ class AIEngine:
             
             # 人员离岗逻辑：记录最后看到人员的时间
             if person_detected:
-                # 检测到人员，重置计时器和计数器
-                self._person_absent_timer[device_ip] = current_time
+                # 检测到人员，完全重置离岗状态
+                self._person_absent_timer[device_ip] = None  # 重置为从未离开状态
                 self._consec[device_ip]["Person"] = 0  # 重置连续帧计数
             else:
                 # 未检测到人员，开始计时
-                # 只有之前看到过人（计时器不为 None）才开始计时
-                if self._person_absent_timer[device_ip] is not None:
-                    # 之前看到过人，计算消失时长
+                # 如果计时器为 None，说明刚启动或刚看到人离开，初始化计时器
+                if self._person_absent_timer[device_ip] is None:
+                    # 首次检测到人离开，记录离开时间
+                    self._person_absent_timer[device_ip] = current_time
+                else:
+                    # 已经离开了一段时间，计算时长
                     absent_duration = current_time - self._person_absent_timer[device_ip]
                     
-                    # 只有超过 30 秒才触发警报
+                    # 只有超过 30 秒才考虑触发警报
                     if absent_duration >= self.PERSON_ABSENT_SEC:
                         # 使用连续帧确认（防止误报）
                         self._consec[device_ip]["Person"] += 1
@@ -200,12 +191,8 @@ class AIEngine:
                             self._maybe_alert(device_ip, "Person", annotated, detections)
                 # 如果这是第一次启动且没检测到人，不触发警报（等待首次检测到人来启动计时器）
         
-        # 调试：打印检测结果（每 10 帧打印一次）
-        if len(all_detections) > 0 and len(detections) == 0:
-            print(f"[DEBUG] 检测到 {len(all_detections)} 个目标，但无违规类别:")
-            for det in all_detections[:5]:  # 只显示前 5 个
-                print(f"  - {det['name']} (置信度：{det['conf']:.2f})")
-        elif len(detections) > 0:
+        # 精简日志：只在检测到违规时输出
+        if len(detections) > 0:
             print(f"[AI] 检测到违规行为：{detections}")
 
         # 连续帧计数 + 预警触发（不包括 Person，Person 有独立的离岗计时逻辑）
@@ -227,14 +214,23 @@ class AIEngine:
         return annotated, detections
 
     def _maybe_alert(self, device_ip, class_name, frame, detections):
+        """检查冷却时间并触发警报（如果未处于冷却期）"""
         now = time.time()
         last = self._cooldown[device_ip].get(class_name, 0)
-        if now - last < self.COOLDOWN_SEC:
+        cooldown_remaining = self.COOLDOWN_SEC - (now - last)
+        
+        if cooldown_remaining > 0:
+            # 仍在冷却期内，跳过报警
             return
+        
+        # 更新冷却时间
         self._cooldown[device_ip][class_name] = now
+        
+        # 触发警报
         level = VIOLATION_LEVELS.get(class_name, 1)
         print(f"[AIEngine] 触发预警 device={device_ip} "
               f"class={class_name} level={level}")
+        
         if self.on_alert:
             self.on_alert(device_ip, class_name, level, frame.copy(), detections)
 
