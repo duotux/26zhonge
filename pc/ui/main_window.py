@@ -123,20 +123,34 @@ class MainWindow(QMainWindow):
 
     # ── 槽函数 ───────────────────────────────────────────
     def _on_alert_ui(self, event: dict):
-        """预警事件到达 UI 线程"""
-        self._tab_alert.add_event(event)
-        level = event.get("level", 2)
-        cls   = t(event.get("class_name", ""))
-        dev   = event.get("device_ip", "")
-        level_str = t(f"level_{level}")
-        self._lbl_status.setText(
-            f"⚠ [{level_str}] {cls}  @{dev}  {event.get('ts','')}")
-        # 三级预警弹窗
-        if level >= 3:
-            QMessageBox.critical(
-                self, f"【{level_str}】紧急预警",
-                f"设备：{dev}\n违规类型：{cls}\n时间：{event.get('ts','')}\n\n"
-                f"请立即处置！截图已保存：\n{event.get('img_path','')}")
+        """预警事件到达 UI 线程（通过信号槽机制，已在 UI 线程中）"""
+        try:
+            # 1. 添加到预警列表
+            self._tab_alert.add_event(event)
+            
+            # 2. 更新状态栏
+            level = event.get("level", 2)
+            cls   = t(event.get("class_name", ""))
+            dev   = event.get("device_ip", "")
+            level_str = t(f"level_{level}")
+            ts    = event.get('ts','')
+            
+            status_msg = f"⚠ [{level_str}] {cls}  @{dev}  {ts}"
+            self._lbl_status.setText(status_msg)
+            print(f"[UI] 状态栏已更新：{status_msg}")
+            
+            # 3. 三级预警弹窗（仅当 level >= 3 时）
+            if level >= 3:
+                img_path = event.get('img_path','')
+                QMessageBox.critical(
+                    self, f"【{level_str}】紧急预警",
+                    f"设备：{dev}\n违规类型：{cls}\n时间：{ts}\n\n"
+                    f"请立即处置！截图已保存：\n{img_path}")
+                    
+        except Exception as e:
+            print(f"[UI] _on_alert_ui 异常：{type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _on_device_status_change(self, device_id: str, online: bool):
         """心跳状态变更（后端线程触发，不直接操作 UI）"""

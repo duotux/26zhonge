@@ -94,11 +94,22 @@ class AlertTab(QWidget):
         self._table.scrollToTop()
 
     def add_event(self, event: dict):
-        """由主程序预警回调调用，线程安全"""
-        self._all_events.insert(0, event)
-        if len(self._all_events) > 500:
-            self._all_events = self._all_events[:500]
-        self._refresh_table()
+        """由主程序预警回调调用，线程安全 - 使用信号槽机制"""
+        # 检查是否在 UI 线程中执行
+        import threading
+        if threading.current_thread() is threading.main_thread():
+            # 在 UI 线程中，直接更新
+            self._all_events.insert(0, event)
+            if len(self._all_events) > 500:
+                self._all_events = self._all_events[:500]
+            try:
+                self._refresh_table()
+            except Exception as e:
+                print(f"[AlertTab] UI 更新失败：{e}")
+        else:
+            # 不在 UI 线程中，通过信号安全更新（由 main_window 的 Bridge 处理）
+            # 这里不应该直接调用，应该由 main_window 的信号机制处理
+            pass
 
     def _handle_selected(self):
         rows = set(i.row() for i in self._table.selectedItems())
