@@ -21,9 +21,10 @@ except ImportError:
     print("[AIEngine] 警告：未安装 ultralytics，以 Demo 模式运行")
 
 # 违规类别多语言标签（只保留 2 个报警）
+# 注意：类别名称必须与 YOLOv8 模型训练时的标签一致！
 CLASS_LABELS = {
-    "open_fire":  {"zh": "违规明火",     "ru": "Открытый огонь"},
-    "absent":     {"zh": "人员离岗",     "ru": "Отсутствие"},
+    "Fire":  {"zh": "火焰",       "ru": "Огонь"},
+    "Smoke": {"zh": "烟雾",       "ru": "Дым"},
 }
 
 # 预警等级 → (BGR 颜色，中文标题)（只保留 2 个等级）
@@ -77,6 +78,9 @@ class AIEngine:
         annotated = frame.copy()
         detections = []
         detected_classes = set()
+        
+        # 调试：统计所有检测结果
+        all_detections = []
 
         for r in results:
             if r.boxes is None:
@@ -85,7 +89,15 @@ class AIEngine:
                 cls_id = int(box.cls[0])
                 conf   = float(box.conf[0])
                 name   = self._model.names.get(cls_id, str(cls_id))
+                
+                # 调试：记录所有检测到的目标
+                all_detections.append({"name": name, "conf": conf})
+                
+                # 只处理配置中的违规类别
                 if name not in VIOLATION_LEVELS:
+                    # 调试：打印未配置的类别（仅当检测到火焰时）
+                    if "fire" in name.lower() or "flame" in name.lower():
+                        print(f"[DEBUG] 检测到火焰但未配置：{name} (置信度：{conf:.2f})")
                     continue
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 level  = VIOLATION_LEVELS.get(name, 1)
@@ -102,6 +114,14 @@ class AIEngine:
                 detections.append({"class": name, "conf": conf,
                                     "box": [x1, y1, x2, y2], "level": level})
                 detected_classes.add(name)
+        
+        # 调试：打印检测结果（每 10 帧打印一次）
+        if len(all_detections) > 0 and len(detections) == 0:
+            print(f"[DEBUG] 检测到 {len(all_detections)} 个目标，但无违规类别:")
+            for det in all_detections[:5]:  # 只显示前 5 个
+                print(f"  - {det['name']} (置信度：{det['conf']:.2f})")
+        elif len(detections) > 0:
+            print(f"[AI] 检测到违规行为：{detections}")
 
         # 连续帧计数 + 预警触发
         for cls in detected_classes:

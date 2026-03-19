@@ -10,9 +10,10 @@ from core.config import RECORD_DIR
 from core.cmd_sender import CmdSender
 
 # 违规类别 → 对应 ESP32 播报指令（只保留 2 个报警）
+# 注意：类别名称必须与 YOLOv8 模型训练时的标签一致！
 CMD_MAP = {
-    "open_fire":    "warn2",   # 请勿违规操作明火
-    "absent":       "warn3",   # 危险！无人值守
+    "Fire":      "warn2",   # 火焰 → 请勿违规操作明火
+    "Smoke":     "warn2",   # 烟雾 → 请勿违规操作明火
 }
 
 # 预警等级中文说明（只保留 2 个等级）
