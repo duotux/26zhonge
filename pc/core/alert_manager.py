@@ -54,45 +54,66 @@ class AlertManager:
         ).start()
 
     def _process(self, device_ip, class_name, level, frame, detections):
-        ts  = datetime.now()
-        ts_str = ts.strftime("%Y%m%d_%H%M%S")
-
-        # 1. 保存截图
-        img_path = os.path.join(
-            RECORD_DIR,
-            f"{ts_str}_{device_ip.replace('.','_')}_{class_name}.jpg"
-        )
-        cv2.imwrite(img_path, frame)
-
-        # 2. 构造事件字典
-        event = {
-            "ts":         ts.isoformat(timespec="seconds"),
-            "device_ip":  device_ip,
-            "class_name": class_name,
-            "level":      level,
-            "level_desc": LEVEL_DESC.get(level, ""),
-            "img_path":   img_path,
-            "conf":       max((d["conf"] for d in detections
-                               if d["class"] == class_name), default=0.0),
-        }
-
-        # 3. 写入数据库
-        if self._db:
-            try:
-                self._db.insert_event(event)
-            except Exception as e:
-                print(f"[AlertManager] 数据库写入失败: {e}")
-
-        # 4. 下发 ESP32 指令
-        cmd   = CMD_MAP.get(class_name, "warn1")
+        """处理预警的后台线程函数（增强错误处理）"""
         try:
-            self._sender.send(device_ip, cmd, level)
+            ts  = datetime.now()
+            ts_str = ts.strftime("%Y%m%d_%H%M%S")
+    
+            # 1. 保存截图（增加错误处理）
+            img_path = ""
+            try:
+                img_path = os.path.join(
+                    RECORD_DIR,
+                    f"{ts_str}_{device_ip.replace('.','_')}_{class_name}.jpg"
+                )
+                # 确保目录存在
+                os.makedirs(os.path.dirname(img_path), exist_ok=True)
+                    
+                # 检查 frame 是否有效
+                if frame is None or frame.size == 0:
+                    print(f"[Alert] 警告：帧数据为空，跳过截图保存")
+                else:
+                    cv2.imwrite(img_path, frame)
+                    print(f"[Alert] 截图已保存：{img_path}")
+            except Exception as e:
+                print(f"[Alert] 截图保存失败：{e}")
+                img_path = ""
+    
+            # 2. 构造事件字典
+            event = {
+                "ts":         ts.isoformat(timespec="seconds"),
+                "device_ip":  device_ip,
+                "class_name": class_name,
+                "level":      level,
+                "level_desc": LEVEL_DESC.get(level, ""),
+                "img_path":   img_path,
+                "conf":       max((d["conf"] for d in detections
+                                   if d["class"] == class_name), default=0.0),
+            }
+    
+            # 3. 写入数据库（如果数据库可用）
+            if self._db:
+                try:
+                    self._db.insert_event(event)
+                except Exception as e:
+                    print(f"[AlertManager] 数据库写入失败：{e}")
+    
+            # 4. 下发 ESP32 指令
+            cmd   = CMD_MAP.get(class_name, "warn2")
+            try:
+                self._sender.send(device_ip, cmd, level)
+                print(f"[CmdSender] 指令已发送：{cmd} to {device_ip}")
+            except Exception as e:
+                print(f"[AlertManager] 指令发送失败：{e}")
+    
+            print(f"[Alert] {event['level_desc']} | {device_ip} | {class_name}")
+    
+            # 5. 通知 UI（在独立线程中）
+            if self._on_alert:
+                try:
+                    self._on_alert(event)
+                except Exception as e:
+                    print(f"[AlertManager] UI 通知失败：{e}")
+                        
         except Exception as e:
-            print(f"[AlertManager] 指令发送失败: {e}")
-
-        print(f"[Alert] {event['level_desc']} | {device_ip} | "
-              f"{class_name} | 截图:{img_path}")
-
-        # 5. 通知 UI
-        if self._on_alert:
-            self._on_alert(event)
+            print(f"[AlertManager] 处理异常：{type(e).__name__}: {e}")
