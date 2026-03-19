@@ -180,17 +180,25 @@ class AIEngine:
             
             # 人员离岗逻辑：记录最后看到人员的时间
             if person_detected:
+                # 检测到人员，重置计时器和计数器
                 self._person_absent_timer[device_ip] = current_time
+                self._consec[device_ip]["Person"] = 0  # 重置连续帧计数
             else:
-                # 如果之前看到过人，现在没看到，开始计时
+                # 未检测到人员，开始计时
+                # 只有之前看到过人（计时器不为 None）才开始计时
                 if self._person_absent_timer[device_ip] is not None:
+                    # 之前看到过人，计算消失时长
                     absent_duration = current_time - self._person_absent_timer[device_ip]
+                    
+                    # 只有超过 30 秒才触发警报
                     if absent_duration >= self.PERSON_ABSENT_SEC:
-                        # 触发人员离岗警报
+                        # 使用连续帧确认（防止误报）
                         self._consec[device_ip]["Person"] += 1
                         if self._consec[device_ip]["Person"] >= CONSECUTIVE_FRAMES:
                             self._consec[device_ip]["Person"] = 0
+                            print(f"[ALERT] 人员离岗 {absent_duration:.1f}秒，触发警报！")
                             self._maybe_alert(device_ip, "Person", annotated, detections)
+                # 如果这是第一次启动且没检测到人，不触发警报（等待首次检测到人来启动计时器）
         
         # 调试：打印检测结果（每 10 帧打印一次）
         if len(all_detections) > 0 and len(detections) == 0:
@@ -200,15 +208,20 @@ class AIEngine:
         elif len(detections) > 0:
             print(f"[AI] 检测到违规行为：{detections}")
 
-        # 连续帧计数 + 预警触发
+        # 连续帧计数 + 预警触发（不包括 Person，Person 有独立的离岗计时逻辑）
         for cls in detected_classes:
+            # 人员离岗检测不使用连续帧触发，而是使用离岗计时器
+            if cls == "Person":
+                continue  # 跳过人员的连续帧触发
+            
             self._consec[device_ip][cls] += 1
             if self._consec[device_ip][cls] >= CONSECUTIVE_FRAMES:
                 self._consec[device_ip][cls] = 0
                 self._maybe_alert(device_ip, cls, annotated, detections)
-        # 未检测到的类别重置计数
+        
+        # 未检测到的类别重置计数（Person 的重置由离岗逻辑处理）
         for cls in list(self._consec[device_ip].keys()):
-            if cls not in detected_classes:
+            if cls not in detected_classes and cls != "Person":
                 self._consec[device_ip][cls] = 0
 
         return annotated, detections
