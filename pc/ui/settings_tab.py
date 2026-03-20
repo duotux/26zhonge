@@ -16,6 +16,7 @@ from core.config import DB_PATH, RECORD_DIR
 class SettingsTab(QWidget):
     lang_changed  = pyqtSignal(str)   # 语言切换信号
     conf_changed  = pyqtSignal(float) # 阈值变更信号
+    mode_changed  = pyqtSignal(str)   # 监测模式变更信号
 
     def __init__(self, ai_engine=None, parent=None):
         super().__init__(parent)
@@ -37,6 +38,17 @@ class SettingsTab(QWidget):
         self._cmb_lang.currentIndexChanged.connect(self._on_lang_change)
         form_lang.addRow(t("lang_label") + ":", self._cmb_lang)
         vbox.addWidget(grp_lang)
+
+        # ── 监测模式 ────────────────────────────────────
+        grp_mode = QGroupBox("监测模式")
+        grp_mode.setStyleSheet(self._grp_style())
+        form_mode = QFormLayout(grp_mode)
+        self._cmb_mode = QComboBox()
+        self._cmb_mode.addItems(["全部启用 (火焰 + 人员)", "仅火焰监测", "仅人员监测"])
+        self._cmb_mode.setCurrentIndex(0)  # 默认全部启用
+        self._cmb_mode.currentIndexChanged.connect(self._on_mode_change)
+        form_mode.addRow("监测模式:", self._cmb_mode)
+        vbox.addWidget(grp_mode)
 
         # ── AI 推理阈值 ──────────────────────────────────
         grp_ai = QGroupBox(t("conf_label"))
@@ -93,6 +105,24 @@ class SettingsTab(QWidget):
         if self._ai:
             self._ai.set_lang(lang)
         self.lang_changed.emit(lang)
+
+    def _on_mode_change(self, index):
+        """监测模式切换"""
+        mode_map = {
+            0: "all",      # 全部启用
+            1: "fire",     # 仅火焰
+            2: "person"    # 仅人员
+        }
+        mode = mode_map.get(index, "all")
+        
+        # 发送信号通知主程序
+        self.mode_changed.emit(mode)
+        
+        # 更新 AI 引擎（注意：需要重启才能重新加载模型）
+        if self._ai:
+            self._ai.set_monitor_mode(mode)
+        
+        print(f"[SettingsTab] 监测模式已切换：{mode}")
 
     def _on_conf_change(self, val):
         self.conf_changed.emit(val)

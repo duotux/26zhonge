@@ -21,6 +21,10 @@ PERSON_CONF_THRESHOLD = 0.6      # 人员检测置信度阈值
 PERSON_CLASSES = [0]  # COCO 数据集中 'person' 的类别索引
 PERSON_ABSENT_SEC = 30  # 人员消失持续时间（秒），超过后触发警报
 
+# 监测模式配置
+# 可选值："all" (全部启用), "fire" (仅火焰), "person" (仅人员)
+MONITOR_MODE = "all"  # 默认全部启用
+
 # 违规类别及其默认预警等级（只保留 2 个报警）
 # 注意：类别名称必须与 YOLOv8 模型训练时的标签一致！
 VIOLATION_LEVELS = {

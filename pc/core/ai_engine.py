@@ -13,7 +13,7 @@ from datetime import datetime
 from core.config import (MODEL_PATH, CONF_THRESHOLD,
                           CONSECUTIVE_FRAMES, VIOLATION_LEVELS, RECORD_DIR,
                           PERSON_MODEL_PATH, PERSON_CONF_THRESHOLD, PERSON_CLASSES,
-                          PERSON_ABSENT_SEC)
+                          PERSON_ABSENT_SEC, MONITOR_MODE)
 
 try:
     from ultralytics import YOLO
@@ -61,49 +61,67 @@ class AIEngine:
         self._person_absent_timer = defaultdict(lambda: None)
         self.COOLDOWN_SEC = 8   # 同一违规 8 秒内不重复触发
         self.PERSON_ABSENT_SEC = PERSON_ABSENT_SEC  # 人员消失 30 秒后触发警报（从配置读取）
+        
+        # 监测模式控制
+        self.monitor_mode = MONITOR_MODE  # "all", "fire", "person"
+        self._enable_fire = self.monitor_mode in ["all", "fire"]
+        self._enable_person = self.monitor_mode in ["all", "person"]
+        
+        print(f"[AIEngine] 监测模式：{self.monitor_mode} (火焰：{'✓' if self._enable_fire else '✗'}, 人员：{'✓' if self._enable_person else '✗'})")
+        
         self._load_models()
 
     def _load_models(self):
-        """加载双模型：主模型 + 人员检测模型"""
+        """加载双模型：主模型 + 人员检测模型（根据监测模式决定）"""
         if not _YOLO_OK:
             return
                 
-        # 加载主模型（Fire + Smoke）
-        path = MODEL_PATH
-        if not os.path.exists(path):
-            print(f"[AIEngine] 自训练权重不存在，加载 yolov8n.pt 演示")
-            path = "yolov8n.pt"
-        self._model = YOLO(path)
-        print(f"[AIEngine] 主模型加载完成：{path}")
+        # 加载主模型（Fire + Smoke）- 仅在启用火焰监测时
+        if self._enable_fire:
+            path = MODEL_PATH
+            if not os.path.exists(path):
+                print(f"[AIEngine] 自训练权重不存在，加载 yolov8n.pt 演示")
+                path = "yolov8n.pt"
+            self._model = YOLO(path)
+            print(f"[AIEngine] 主模型加载完成：{path} (用于火焰/烟雾检测)")
+        else:
+            print("[AIEngine] 火焰监测已禁用，不加载主模型")
+            self._model = None
             
-        # 加载人员检测模型（COCO 预训练）
-        person_path = PERSON_MODEL_PATH
-        if os.path.exists(person_path):
-            try:
-                self._person_model = YOLO(person_path)
-                print(f"[AIEngine] 人员检测模型加载完成：{person_path}")
-            except Exception as e:
-                print(f"[AIEngine] 人员模型加载失败：{e}")
+        # 加载人员检测模型（COCO 预训练）- 仅在启用人员监测时
+        if self._enable_person:
+            person_path = PERSON_MODEL_PATH
+            if os.path.exists(person_path):
+                try:
+                    self._person_model = YOLO(person_path)
+                    print(f"[AIEngine] 人员检测模型加载完成：{person_path}")
+                except Exception as e:
+                    print(f"[AIEngine] 人员模型加载失败：{e}")
+                    self._person_model = None
+            else:
+                print(f"[AIEngine] 人员模型文件不存在：{person_path}")
                 self._person_model = None
         else:
-            print(f"[AIEngine] 人员模型文件不存在：{person_path}")
+            print("[AIEngine] 人员监测已禁用，不加载人员模型")
             self._person_model = None
 
     def infer(self, device_ip: str, frame: np.ndarray):
         """
         推理一帧，返回标注后的图像和检测结果列表。
         result_list: [{"class": str, "conf": float, "box": [x1,y1,x2,y2], "level": int}]
-        使用双模型：主模型检测 Fire/Smoke，人员模型检测 Person
+        使用双模型：主模型检测 Fire/Smoke，人员模型检测 Person（根据监测模式决定）
         """
-        if self._model is None and self._person_model is None:
+        # 如果两个模型都禁用或不存在，直接返回
+        if (not self._enable_fire and not self._enable_person) or \
+           (self._model is None and self._person_model is None):
             return frame, []
 
         annotated = frame.copy()
         detections = []
         detected_classes = set()
 
-        # ========== 1. 主模型推理（Fire + Smoke） ==========
-        if self._model is not None:
+        # ========== 1. 主模型推理（Fire + Smoke）- 仅在启用火焰监测时 ==========
+        if self._enable_fire and self._model is not None:
             with self._lock:
                 results = self._model(frame, conf=CONF_THRESHOLD,
                                        verbose=False, stream=False)
@@ -130,8 +148,8 @@ class AIEngine:
                                         "box": [x1, y1, x2, y2], "level": level})
                     detected_classes.add(name)
         
-        # ========== 2. 人员模型推理（Person） ==========
-        if self._person_model is not None:
+        # ========== 2. 人员模型推理（Person）- 仅在启用人员监测时 ==========
+        if self._enable_person and self._person_model is not None:
             with self._lock:
                 person_results = self._person_model(frame, conf=PERSON_CONF_THRESHOLD,
                                                     classes=PERSON_CLASSES,
@@ -236,3 +254,18 @@ class AIEngine:
 
     def set_lang(self, lang: str):
         self.lang = lang
+    
+    def set_monitor_mode(self, mode: str):
+        """
+        动态设置监测模式（需要重启 AI 引擎才能生效）
+        mode: "all" (全部启用), "fire" (仅火焰), "person" (仅人员)
+        """
+        if mode not in ["all", "fire", "person"]:
+            print(f"[AIEngine] 无效的监测模式：{mode}，使用默认值 'all'")
+            mode = "all"
+        
+        self.monitor_mode = mode
+        self._enable_fire = mode in ["all", "fire"]
+        self._enable_person = mode in ["all", "person"]
+        
+        print(f"[AIEngine] 监测模式已切换：{mode} (火焰：{'✓' if self._enable_fire else '✗'}, 人员：{'✓' if self._enable_person else '✗'})")
